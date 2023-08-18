@@ -1,14 +1,14 @@
 #![allow(non_snake_case)]
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
+use log::LevelFilter;
 use rand::{distributions::Alphanumeric, Rng};
-use std::{env, iter};
+use std::env;
 
 use dioxus::prelude::*;
 
 fn params() -> Result<String> {
     let username = env::var("SUBSONIC_USER")?;
     let password = env::var("SUBSONIC_PASSWORD")?;
-    let mut rng = rand::thread_rng();
     let salt: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(36)
@@ -17,23 +17,49 @@ fn params() -> Result<String> {
     let pre_t = password + &salt;
     let token = format!("{:x}", md5::compute(pre_t.as_bytes()));
 
-    let auth = format!("u={username}&p={token}");
+    let auth = format!("u={username}&t={token}&s={salt}");
     let format = "json";
     let crate_name = env!("CARGO_PKG_NAME");
     let version = "1.16.1";
     Ok(format!("?{auth}&v={version}&c={crate_name}&f={format}",))
 }
 
+async fn random_song_id() -> Result<String> {
+    let url = format!(
+        "{server_url}/rest/getRandomSongs{params}&size=1",
+        params = params()?,
+        server_url = env::var("SUBSONIC_SERVER_URL")?
+    );
+    let val: serde_json::Value = reqwest::get(url)
+        .await
+        .context("Failed to fetch")?
+        .json()
+        .await
+        .context("Failed to deserialize")?;
+
+    let id = val["subsonic-response"]["randomSongs"]["song"][0]["id"]
+        .as_str()
+        .ok_or(anyhow!("Did not find song ID in response"))?
+        .to_string();
+    Ok(id)
+}
+
 fn main() {
+    dioxus_logger::init(LevelFilter::Info).expect("failed to init logger");
     dioxus_desktop::launch(app);
 }
 
 fn app(cx: Scope) -> Element {
-    let server_url = env::var("SUBSONIC_SERVER_URL")?;
-    let url = format!("{server_url}/rest/ping.view{params}", params = params()?);
-    let res = use_future(cx, (), |_| reqwest::get(url));
-    dbg!(res);
-    render! { PlayButton {} }
+    let song_id_fut = use_future(cx, (), |_| random_song_id());
+    let default = String::new();
+    let song_id = song_id_fut
+        .value()
+        .and_then(|res| res.as_ref().ok())
+        .unwrap_or(&default);
+    render! {
+        "{song_id:?}"
+        PlayButton {}
+    }
 }
 
 enum PlayState {

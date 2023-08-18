@@ -784,16 +784,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2d35a6680cb2cf003a6c84fcaaa6d2a60b930efe4750910977b4e513bd73826"
 
 [[package]]
+name = "dioxus-logger"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d7cbab0b5519060fe9e14b3c21e3f2329b8386cd905618f78c7b929cd00cf54"
+dependencies = [
+ "log",
+ "web-sys",
+]
+
+[[package]]
 name = "dioxus-play"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "dioxus",
  "dioxus-desktop",
+ "dioxus-logger",
+ "log",
  "md5",
  "rand 0.8.5",
  "reqwest",
  "rodio",
+ "serde_json",
 ]
 
 [[package]]
