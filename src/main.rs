@@ -1,10 +1,14 @@
 #![allow(non_snake_case)]
 use anyhow::{anyhow, Context, Result};
-use log::LevelFilter;
+use log::{debug, LevelFilter};
 use rand::{distributions::Alphanumeric, Rng};
 use std::env;
 
 use dioxus::prelude::*;
+
+use crate::shortcuts::use_shortcuts;
+
+mod shortcuts;
 
 fn params() -> Result<String> {
     let username = env::var("SUBSONIC_USER").context("Failed to read SUBSONIC_USER")?;
@@ -54,12 +58,15 @@ fn download_song_url(id: &str) -> Result<String> {
 }
 
 fn main() {
-    dioxus_logger::init(LevelFilter::Info).expect("failed to init logger");
+    dioxus_logger::init(LevelFilter::Debug).expect("failed to init logger");
     dioxus_desktop::launch(App);
 }
 
 fn App(cx: Scope) -> Element {
+    debug!("render");
+    use_shortcuts(cx);
     let song_id_fut = use_future(cx, (), |_| async { random_song_id().await });
+
     let Some(song_id) = song_id_fut.value() else {
         return render! {"loading..."}
     };
@@ -68,6 +75,7 @@ fn App(cx: Scope) -> Element {
         Ok(id) => id,
         Err(err) => return render! { pre { "{err:?}" } },
     };
+
     render! { Player { song_id: song_id } }
 }
 
