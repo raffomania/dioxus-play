@@ -7,8 +7,8 @@ use std::env;
 use dioxus::prelude::*;
 
 fn params() -> Result<String> {
-    let username = env::var("SUBSONIC_USER")?;
-    let password = env::var("SUBSONIC_PASSWORD")?;
+    let username = env::var("SUBSONIC_USER").context("Failed to read SUBSONIC_USER")?;
+    let password = env::var("SUBSONIC_PASSWORD").context("Failed to read SUBSONIC_PASSOWRD")?;
     let salt: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(36)
@@ -44,33 +44,43 @@ async fn random_song_id() -> Result<String> {
     Ok(id)
 }
 
-fn download_song_url(id: &String) -> Result<String> {
+fn download_song_url(id: &str) -> Result<String> {
     Ok(format!(
-        "{server_url}/rest/download{params}&id={id}",
+        "{server_url}/rest/stream{params}&id={id}",
         params = params()?,
-        server_url = env::var("SUBSONIC_SERVER_URL")?
+        server_url =
+            env::var("SUBSONIC_SERVER_URL").context("Failed to read SUBSONIC_SERVER_URL")?
     ))
 }
 
 fn main() {
     dioxus_logger::init(LevelFilter::Info).expect("failed to init logger");
-    dioxus_desktop::launch(app);
+    dioxus_desktop::launch(App);
 }
 
-fn app(cx: Scope) -> Element {
-    let song_id_fut = use_future(cx, (), |_| random_song_id());
-    let audio_element = song_id_fut
-        .value()
-        .and_then(|res| res.as_ref().ok())
-        .and_then(|id| download_song_url(id).ok())
-        .map(|url| {
-            rsx!(audio {
-                controls: true,
-                onplay: |_| println!("play"),
-                width: "40em",
-                display: "block",
-                src: "{url}"
-            })
-        });
-    render! {audio_element}
+fn App(cx: Scope) -> Element {
+    let song_id_fut = use_future(cx, (), |_| async { random_song_id().await });
+    let Some(song_id) = song_id_fut.value() else {
+        return render! {"loading..."}
+    };
+
+    let song_id = match song_id {
+        Ok(id) => id,
+        Err(err) => return render! { pre { "{err:?}" } },
+    };
+    render! { Player { song_id: song_id } }
+}
+
+#[inline_props]
+fn Player<'a>(cx: Scope, song_id: &'a str) -> Element {
+    let nodes = download_song_url(song_id).ok().map(|url| {
+        rsx!(audio {
+            controls: true,
+            onplay: |_| println!("play"),
+            width: "40em",
+            display: "block",
+            src: "{url}"
+        })
+    })?;
+    cx.render(nodes)
 }
