@@ -44,6 +44,14 @@ async fn random_song_id() -> Result<String> {
     Ok(id)
 }
 
+fn download_song_url(id: &String) -> Result<String> {
+    Ok(format!(
+        "{server_url}/rest/download{params}&id={id}",
+        params = params()?,
+        server_url = env::var("SUBSONIC_SERVER_URL")?
+    ))
+}
+
 fn main() {
     dioxus_logger::init(LevelFilter::Info).expect("failed to init logger");
     dioxus_desktop::launch(app);
@@ -51,40 +59,18 @@ fn main() {
 
 fn app(cx: Scope) -> Element {
     let song_id_fut = use_future(cx, (), |_| random_song_id());
-    let default = String::new();
-    let song_id = song_id_fut
+    let audio_element = song_id_fut
         .value()
         .and_then(|res| res.as_ref().ok())
-        .unwrap_or(&default);
-    render! {
-        "{song_id:?}"
-        PlayButton {}
-    }
-}
-
-enum PlayState {
-    Playing,
-    Paused,
-}
-
-#[inline_props]
-fn PlayButton(cx: Scope) -> Element {
-    let play_state = use_state(cx, || PlayState::Paused);
-    let text = match **play_state {
-        PlayState::Playing => "Pause",
-        PlayState::Paused => "Play!",
-    };
-    render! {
-        button { onclick: move |_| {
-                play_state
-                    .set(
-                        match &*play_state.current() {
-                            PlayState::Playing => PlayState::Paused,
-                            PlayState::Paused => PlayState::Playing,
-                        },
-                    )
-            },
-            "{text}"
-        }
-    }
+        .and_then(|id| download_song_url(id).ok())
+        .map(|url| {
+            rsx!(audio {
+                controls: true,
+                onplay: |_| println!("play"),
+                width: "40em",
+                display: "block",
+                src: "{url}"
+            })
+        });
+    render! {audio_element}
 }
