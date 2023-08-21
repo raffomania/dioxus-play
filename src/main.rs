@@ -1,10 +1,10 @@
 #![allow(non_snake_case)]
 use anyhow::{anyhow, Context, Result};
+use dioxus::prelude::*;
 use log::{debug, LevelFilter};
 use rand::{distributions::Alphanumeric, Rng};
+use serde::Deserialize;
 use std::env;
-
-use dioxus::prelude::*;
 
 use crate::shortcuts::use_shortcuts;
 
@@ -28,7 +28,16 @@ fn params() -> Result<String> {
     Ok(format!("?{auth}&v={version}&c={crate_name}&f={format}",))
 }
 
-async fn random_song_id() -> Result<String> {
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Song {
+    id: String,
+    cover_art: Option<String>,
+    artist: String,
+    title: String,
+}
+
+async fn random_song() -> Result<Song> {
     let url = format!(
         "{server_url}/rest/getRandomSongs{params}&size=1",
         params = params()?,
@@ -40,12 +49,8 @@ async fn random_song_id() -> Result<String> {
         .json()
         .await
         .context("Failed to deserialize")?;
-
-    let id = val["subsonic-response"]["randomSongs"]["song"][0]["id"]
-        .as_str()
-        .ok_or(anyhow!("Did not find song ID in response"))?
-        .to_string();
-    Ok(id)
+    serde_json::from_value(val["subsonic-response"]["randomSongs"]["song"][0].clone())
+        .context("Failed to deserialize Song")
 }
 
 fn download_song_url(id: &str) -> Result<String> {
@@ -57,42 +62,66 @@ fn download_song_url(id: &str) -> Result<String> {
     ))
 }
 
+fn cover_art_url(song: &Song) -> Result<String> {
+    let id = song
+        .cover_art
+        .as_ref()
+        .ok_or_else(|| anyhow!("Missing cover art"))?;
+    Ok(format!(
+        "{server_url}/rest/getCoverArt{params}&id={id}",
+        params = params()?,
+        server_url =
+            env::var("SUBSONIC_SERVER_URL").context("Failed to read SUBSONIC_SERVER_URL")?
+    ))
+}
+
 fn main() {
     dioxus_logger::init(LevelFilter::Debug).expect("failed to init logger");
-    dioxus_desktop::launch(App);
+    dioxus_desktop::launch_cfg(
+        App,
+        dioxus_desktop::Config::new()
+            .with_custom_head(r#"<link rel="stylesheet" href="public/tailwind.css">"#.to_string()),
+    );
 }
 
 fn App(cx: Scope) -> Element {
     debug!("render");
     use_shortcuts(cx);
-    let song_id_fut = use_future(cx, (), |_| async { random_song_id().await });
+    let song_fut = use_future(cx, (), |_| async { random_song().await });
 
-    let Some(song_id) = song_id_fut.value() else {
+    let Some(song_id) = song_fut.value() else {
         return render! {"loading..."}
     };
 
-    let song_id = match song_id {
-        Ok(id) => id,
+    let song = match song_id {
+        Ok(song) => song,
         Err(err) => return render! { pre { "{err:?}" } },
     };
 
     render! {
-        Player { song_id: song_id }
-        input { r#type: "text" }
+        div { class: "h-full flex flex-col justify-center items-center", Player { song: song } }
     }
 }
 
 #[inline_props]
-fn Player<'a>(cx: Scope, song_id: &'a str) -> Element {
-    let nodes = download_song_url(song_id).ok().map(|url| {
-        rsx!(audio {
-            controls: true,
-            onplay: |_| println!("play"),
-            width: "40em",
-            display: "block",
-            src: "{url}",
-            preload: "auto"
-        })
-    })?;
-    cx.render(nodes)
+fn Player<'a>(cx: Scope, song: &'a Song) -> Element {
+    let cover_src = cover_art_url(&song).unwrap_or_default();
+    let song_url = download_song_url(&song.id).ok()?;
+    render! {
+        div { class: "w-80 flex flex-col gap-4",
+            img { class: "w-80 h-80 bg-slate-400", src: "{cover_src}" }
+            div { class: "flex flex-col text-center",
+                p { class: "font-bold", "{song.title}" }
+                p { "{song.artist}" }
+            }
+            audio {
+                class: "w-full",
+                controls: true,
+                onplay: |_| debug!("play"),
+                onended: |_| debug!("song ended"),
+                src: "{song_url}",
+                preload: "auto"
+            }
+        }
+    }
 }
