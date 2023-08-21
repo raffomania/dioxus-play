@@ -76,7 +76,10 @@ fn App(cx: Scope) -> Element {
         Err(err) => return render! { pre { "{err:?}" } },
     };
 
-    render! { Player { song_id: song_id } }
+    render! {
+        Player { song_id: song_id }
+        input { r#type: "text" }
+    }
 }
 
 #[inline_props]

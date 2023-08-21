@@ -1,46 +1,29 @@
-use dioxus::prelude::ScopeState;
-use dioxus_desktop::{
-    tao::event::{Event, WindowEvent},
-    use_window, DesktopContext, WryEventHandlerId,
-};
+use dioxus::prelude::{use_coroutine, use_eval, ScopeState};
 use log::{debug, info};
 
 pub fn use_shortcuts(cx: &ScopeState) {
-    let window = use_window(cx);
-    cx.use_hook(|| ShortcutListener::new(window.clone()));
-}
+    debug!("Listening for global keypresses...");
+    let create_eval = use_eval(cx);
 
-struct ShortcutListener {
-    id: WryEventHandlerId,
-    window: DesktopContext,
-}
+    let eval = create_eval(
+            r#"
+                dioxus.send("eval");
+                document.addEventListener("keydown", (e) => {
+                    let element = e.target || e.srcElement;
+                    let isTextInput = element.tagName == 'INPUT' || element.tagName == 'SELECT' || element.tagName == 'TEXTAREA' || element.isContentEditable; 
+                    if (isTextInput) {
+                        return;
+                    }
+                    dioxus.send(event.key);
+                });
+            "#,
+        )
+        .unwrap();
 
-impl ShortcutListener {
-    fn new(window: DesktopContext) -> ShortcutListener {
-        debug!("Listening for global keypresses...");
-        let listener_id = window.create_wry_event_handler(|event, _target| match event {
-            Event::WindowEvent {
-                event: WindowEvent::KeyboardInput { event, .. },
-                ..
-            } => {
-                let key = event.key_without_modifiers();
-                let state = event.state;
-                info!("{state:?} {key:?}");
-                // info!("{event:#?}")
-            }
-            _ => {}
-        });
-
-        ShortcutListener {
-            id: listener_id,
-            window: window,
+    use_coroutine(cx, |_: dioxus::prelude::UnboundedReceiver<()>| async move {
+        loop {
+            let msg = eval.recv().await.unwrap();
+            info!("{msg}");
         }
-    }
-}
-
-impl Drop for ShortcutListener {
-    fn drop(&mut self) {
-        info!("Drop");
-        self.window.remove_wry_event_handler(self.id);
-    }
+    });
 }
