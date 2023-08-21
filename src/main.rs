@@ -90,7 +90,8 @@ fn Player<'a>(cx: Scope, song_id: &'a str) -> Element {
             onplay: |_| println!("play"),
             width: "40em",
             display: "block",
-            src: "{url}"
+            src: "{url}",
+            preload: "auto"
         })
     })?;
     cx.render(nodes)
