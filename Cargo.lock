@@ -796,6 +796,7 @@ dependencies = [
  "dioxus",
  "dioxus-desktop",
  "dioxus-logger",
+ "futures-util",
  "log",
  "md5",
  "rand 0.8.5",

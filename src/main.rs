@@ -1,12 +1,13 @@
 #![allow(non_snake_case)]
 use anyhow::{anyhow, Context, Result};
 use dioxus::prelude::*;
+use futures_util::StreamExt;
 use log::{debug, LevelFilter};
 use rand::{distributions::Alphanumeric, seq::IteratorRandom, thread_rng, Rng};
 use serde::Deserialize;
 use std::env;
 
-use crate::shortcuts::use_shortcuts;
+use crate::shortcuts::{use_shortcuts, KeyState};
 
 mod shortcuts;
 
@@ -124,27 +125,47 @@ async fn random_test_song() -> Option<Song> {
 
 fn App(cx: Scope) -> Element {
     debug!("render");
-    use_shortcuts(cx);
 
     let current_song = use_state(&cx, || None::<Result<Song>>);
-    let next_song = || {
+    let shortcut_listener = use_coroutine(cx, |mut rx: UnboundedReceiver<shortcuts::Message>| {
         let current_song = current_song.to_owned();
-        cx.spawn(async move {
-            let new_song = random_song().await;
-            current_song.set(Some(new_song));
-        })
-    };
+        async move {
+            while let Some(msg) = rx.next().await {
+                match msg {
+                    shortcuts::Message::Next => {
+                        let new_song = random_song().await;
+                        debug!("{new_song:?}");
+                        current_song.set(Some(new_song));
+                    }
+                }
+            }
+        }
+    });
+    let key_state = use_state(cx, || KeyState::default());
+    use_shortcuts(cx, shortcut_listener.clone(), &key_state);
 
     let player = match &*current_song.get() {
-        Some(Ok(ref song)) => Some(rsx! { Player { song: &song, on_next: move |_| next_song() } }),
+        Some(Ok(ref song)) => Some(
+            rsx! {Player { song: &song, on_next: |_| shortcut_listener.send(shortcuts::Message::Next) }},
+        ),
         Some(Err(err)) => return render! { pre { "{err:?}" } },
         _ => None,
+    };
+
+    let button_class = if key_state.next {
+        "border font-bold"
+    } else {
+        "active:border active:font-bold"
     };
 
     render! {
         div { class: "h-full flex flex-col justify-center items-center",
             player,
-            button { onclick: move |_| next_song(), "next" }
+            button {
+                class: "{button_class} px-4 py-1 border-slate-400 rounded",
+                onclick: move |_| shortcut_listener.send(shortcuts::Message::Next),
+                "[l] next"
+            }
         }
     }
 }

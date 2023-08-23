@@ -10,6 +10,7 @@ anyhow = "1.0.75"
 dioxus = { git = "https://github.com/DioxusLabs/dioxus.git" }
 dioxus-desktop = { git = "https://github.com/DioxusLabs/dioxus.git" }
 dioxus-logger = "0.4.1"
+futures-util = "0.3.28"
 log = "0.4.20"
 md5 = "0.7.0"
 rand = "0.8.5"
