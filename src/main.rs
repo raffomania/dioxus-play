@@ -2,7 +2,7 @@
 use anyhow::{anyhow, Context, Result};
 use dioxus::prelude::*;
 use log::{debug, LevelFilter};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distributions::Alphanumeric, seq::IteratorRandom, thread_rng, Rng};
 use serde::Deserialize;
 use std::env;
 
@@ -28,7 +28,7 @@ fn params() -> Result<String> {
     Ok(format!("?{auth}&v={version}&c={crate_name}&f={format}",))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Song {
     id: String,
@@ -53,7 +53,7 @@ async fn random_song() -> Result<Song> {
         .context("Failed to deserialize Song")
 }
 
-fn download_song_url(id: &str) -> Result<String> {
+fn song_stream_url(id: &str) -> Result<String> {
     Ok(format!(
         "{server_url}/rest/stream{params}&id={id}",
         params = params()?,
@@ -84,41 +84,88 @@ fn main() {
     );
 }
 
+#[allow(unused)]
+async fn random_test_song() -> Option<Song> {
+    Vec::from([
+        Song {
+            artist: "ABBA".to_string(),
+            cover_art: None,
+            id: "0".to_string(),
+            title: "Super Trouper".to_string(),
+        },
+        Song {
+            artist: "Gorillaz".to_string(),
+            cover_art: None,
+            id: "2".to_string(),
+            title: "A1M1".to_string(),
+        },
+        Song {
+            artist: "Schnitzelpower".to_string(),
+            cover_art: None,
+            id: "3".to_string(),
+            title: "Sicko".to_string(),
+        },
+        Song {
+            artist: "ABBA".to_string(),
+            cover_art: None,
+            id: "4".to_string(),
+            title: "Mamma Mia".to_string(),
+        },
+        Song {
+            artist: "Röyksopp".to_string(),
+            cover_art: None,
+            id: "5".to_string(),
+            title: "Speed King".to_string(),
+        },
+    ])
+    .into_iter()
+    .choose(&mut thread_rng())
+}
+
 fn App(cx: Scope) -> Element {
     debug!("render");
     use_shortcuts(cx);
-    let song_fut = use_future(cx, (), |_| async { random_song().await });
 
-    let Some(song_id) = song_fut.value() else {
-        return render! {"loading..."}
+    let current_song = use_state(&cx, || None::<Result<Song>>);
+    let next_song = || {
+        let current_song = current_song.to_owned();
+        cx.spawn(async move {
+            let new_song = random_song().await;
+            current_song.set(Some(new_song));
+        })
     };
 
-    let song = match song_id {
-        Ok(song) => song,
-        Err(err) => return render! { pre { "{err:?}" } },
+    let player = match &*current_song.get() {
+        Some(Ok(ref song)) => Some(rsx! { Player { song: &song, on_next: move |_| next_song() } }),
+        Some(Err(err)) => return render! { pre { "{err:?}" } },
+        _ => None,
     };
 
     render! {
-        div { class: "h-full flex flex-col justify-center items-center", Player { song: song } }
+        div { class: "h-full flex flex-col justify-center items-center",
+            player,
+            button { onclick: move |_| next_song(), "next" }
+        }
     }
 }
 
 #[inline_props]
-fn Player<'a>(cx: Scope, song: &'a Song) -> Element {
+fn Player<'a>(cx: Scope, song: &'a Song, on_next: EventHandler<'a, MediaEvent>) -> Element {
+    let Song { title, artist, .. } = song;
     let cover_src = cover_art_url(&song).unwrap_or_default();
-    let song_url = download_song_url(&song.id).ok()?;
+    let song_url = song_stream_url(&song.id).ok()?;
     render! {
         div { class: "w-80 flex flex-col gap-4",
             img { class: "w-80 h-80 bg-slate-400", src: "{cover_src}" }
             div { class: "flex flex-col text-center",
-                p { class: "font-bold", "{song.title}" }
-                p { "{song.artist}" }
+                p { class: "font-bold", "{title}" }
+                p { "{artist}" }
             }
             audio {
                 class: "w-full",
                 controls: true,
                 onplay: |_| debug!("play"),
-                onended: |_| debug!("song ended"),
+                onended: |e| on_next.call(e),
                 src: "{song_url}",
                 preload: "auto"
             }
