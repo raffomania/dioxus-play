@@ -148,24 +148,44 @@ fn App(cx: Scope) -> Element {
         Some(Ok(ref song)) => Some(
             rsx! {Player { song: &song, on_next: |_| shortcut_listener.send(shortcuts::Message::Next) }},
         ),
-        Some(Err(err)) => return render! { pre { "{err:?}" } },
+        Some(Err(err)) => Some(rsx! { p { class: "whitespace-pre-wrap", "{err:?}" } }),
         _ => None,
     };
 
-    let button_class = if key_state.next {
-        "border font-bold"
-    } else {
-        "active:border active:font-bold"
-    };
+    render! {
+        div { class: "h-full flex flex-col justify-center items-center p-8",
+            player,
+            KeyButton {
+                pressed: key_state.next,
+                onclick: |_| shortcut_listener.send(shortcuts::Message::Next),
+                key_label: "L",
+                "next"
+            }
+        }
+    }
+}
+
+#[inline_props]
+fn KeyButton<'a>(
+    cx: Scope,
+    pressed: bool,
+    onclick: EventHandler<'a, MouseEvent>,
+    key_label: &'a str,
+    children: Element<'a>,
+) -> Element {
+    let key_style = if *pressed { "border-b-2 mt-[2px]" } else { "" };
 
     render! {
-        div { class: "h-full flex flex-col justify-center items-center",
-            player,
-            button {
-                class: "{button_class} px-4 py-1 border-slate-400 rounded",
-                onclick: move |_| shortcut_listener.send(shortcuts::Message::Next),
-                "[l] next"
+        button { class: "group px-4 py-1", onclick: |e| onclick.call(e),
+            span { class: "inline-block w-6 h-6 mr-2
+            box-content
+            bg-white border border-slate-300 rounded
+            drop-shadow-sm border-b-4 
+            group-active:border-b-2 group-active:mt-[2px]
+            {key_style}",
+                "{key_label}"
             }
+            children
         }
     }
 }
