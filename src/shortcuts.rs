@@ -22,7 +22,7 @@ const JS_KEY_EVENT_LISTENER: &str = r#"
 let isShortcutEvent = (e) => {
     let element = e.target || e.srcElement;
     let isTextInput = element.tagName == 'INPUT' || element.tagName == 'SELECT' || element.tagName == 'TEXTAREA' || element.isContentEditable; 
-    return !isTextInput;
+    return !isTextInput && !e.repeat;
 };
 document.addEventListener("keydown", (e) => {
     if (isShortcutEvent(e)) {
