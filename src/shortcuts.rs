@@ -1,15 +1,17 @@
-use dioxus::prelude::{use_coroutine, use_eval, Coroutine, ScopeState, UseState};
+use dioxus::prelude::{use_coroutine, use_eval, Coroutine, ScopeState, UseRef};
 use log::{trace, warn};
 use serde::Deserialize;
 
 #[derive(Debug)]
 pub enum Message {
     Next,
+    PlayPause,
 }
 
 #[derive(Default)]
 pub struct KeyState {
     pub next: bool,
+    pub play_pause: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,7 +38,7 @@ document.addEventListener("keyup", (e) => {
 });
 "#;
 
-pub fn use_shortcuts(cx: &ScopeState, sender: Coroutine<Message>, key_state: &UseState<KeyState>) {
+pub fn use_shortcuts(cx: &ScopeState, sender: Coroutine<Message>, key_state: &UseRef<KeyState>) {
     let create_eval = use_eval(cx);
 
     let eval = create_eval(JS_KEY_EVENT_LISTENER).unwrap();
@@ -52,13 +54,16 @@ pub fn use_shortcuts(cx: &ScopeState, sender: Coroutine<Message>, key_state: &Us
                 match serde_json::from_value(msg) {
                     Ok(JsMessage { key, pressed }) => match key.as_str() {
                         "l" => {
-                            key_state.set(KeyState {
-                                next: pressed,
-                                ..*key_state.current()
-                            });
                             if pressed {
                                 sender.send(Message::Next);
                             }
+                            key_state.write().next = pressed;
+                        }
+                        " " => {
+                            if pressed {
+                                sender.send(Message::PlayPause);
+                            }
+                            key_state.write().play_pause = pressed;
                         }
                         _ => {}
                     },
