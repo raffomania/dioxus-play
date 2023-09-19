@@ -3,6 +3,7 @@ use anyhow::{anyhow, Context, Result};
 use dioxus::prelude::*;
 use futures_util::StreamExt;
 use log::{debug, error, LevelFilter};
+use net::get_json;
 use rand::{distributions::Alphanumeric, seq::IteratorRandom, thread_rng, Rng};
 use serde::Deserialize;
 use std::{collections::HashSet, env};
@@ -14,25 +15,9 @@ use crate::{
 };
 
 mod audio_control;
+mod net;
 mod shortcuts;
 mod starred_songs;
-
-fn params(credentials: &Credentials) -> Result<String> {
-    let Credentials {
-        salt,
-        username,
-        password,
-    } = credentials;
-
-    let pre_t = password.clone() + salt;
-    let token = format!("{:x}", md5::compute(pre_t.as_bytes()));
-
-    let auth = format!("u={username}&t={token}&s={salt}");
-    let format = "json";
-    let crate_name = env!("CARGO_PKG_NAME");
-    let version = "1.16.1";
-    Ok(format!("?{auth}&v={version}&c={crate_name}&f={format}",))
-}
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -48,28 +33,13 @@ struct AudioState {
 }
 
 async fn random_song(credentials: &Credentials) -> Result<Song> {
-    let url = format!(
-        "{server_url}/rest/getRandomSongs{params}&size=1",
-        params = params(credentials)?,
-        server_url = env::var("SUBSONIC_SERVER_URL")?
-    );
-    let val: serde_json::Value = reqwest::get(url)
-        .await
-        .context("Failed to fetch")?
-        .json()
-        .await
-        .context("Failed to deserialize")?;
+    let val: serde_json::Value = get_json(credentials, "getRandomSongs", "&size=1").await?;
     serde_json::from_value(val["subsonic-response"]["randomSongs"]["song"][0].clone())
         .context("Failed to deserialize Song")
 }
 
 fn song_stream_url(id: &str, credentials: &Credentials) -> Result<String> {
-    Ok(format!(
-        "{server_url}/rest/stream{params}&id={id}",
-        params = params(credentials)?,
-        server_url =
-            env::var("SUBSONIC_SERVER_URL").context("Failed to read SUBSONIC_SERVER_URL")?
-    ))
+    net::url(credentials, "stream", &format!("&id={id}"))
 }
 
 fn cover_art_url(song: &Song, credentials: &Credentials) -> Result<String> {
@@ -77,12 +47,7 @@ fn cover_art_url(song: &Song, credentials: &Credentials) -> Result<String> {
         .cover_art
         .as_ref()
         .ok_or_else(|| anyhow!("Missing cover art"))?;
-    Ok(format!(
-        "{server_url}/rest/getCoverArt{params}&id={id}",
-        params = params(credentials)?,
-        server_url =
-            env::var("SUBSONIC_SERVER_URL").context("Failed to read SUBSONIC_SERVER_URL")?
-    ))
+    net::url(credentials, "getCoverArt", &format!("&id={id}"))
 }
 
 fn main() {

@@ -1,9 +1,9 @@
-use crate::{params, Credentials};
-use anyhow::{anyhow, Context, Result};
+use crate::{net::get_json, Credentials};
+use anyhow::{anyhow, Result};
 use dioxus::prelude::{to_owned, use_coroutine, Coroutine, ScopeState, UseState};
 use futures_util::StreamExt;
 use log::error;
-use std::{collections::HashSet, env};
+use std::collections::HashSet;
 
 #[derive(Debug)]
 pub enum Message {
@@ -61,33 +61,13 @@ async fn set_song_starred(credentials: &Credentials, starred: bool, song_id: &st
         true => "star",
         false => "unstar",
     };
-    let url = format!(
-        "{server_url}/rest/{endpoint}{params}&id={song_id}",
-        params = params(credentials)?,
-        server_url = env::var("SUBSONIC_SERVER_URL")?,
-    );
-    let val: serde_json::Value = reqwest::get(url)
-        .await
-        .context("Failed to fetch")?
-        .json()
-        .await
-        .context("Failed to deserialize")?;
+    get_json::<serde_json::Value>(credentials, endpoint, &format!("&id={song_id}")).await?;
 
     Ok(())
 }
 
 async fn starred_song_ids(credentials: &Credentials) -> Result<HashSet<String>> {
-    let url = format!(
-        "{server_url}/rest/getStarred2{params}",
-        params = params(credentials)?,
-        server_url = env::var("SUBSONIC_SERVER_URL")?
-    );
-    let val: serde_json::Value = reqwest::get(url)
-        .await
-        .context("Failed to fetch")?
-        .json()
-        .await
-        .context("Failed to deserialize")?;
+    let val: serde_json::Value = get_json(credentials, "getStarred2", "").await?;
     val["subsonic-response"]["starred2"]["song"]
         .as_array()
         // If there are no liked songs at all, the "song" object will be empty
