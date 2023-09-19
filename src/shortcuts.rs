@@ -6,12 +6,14 @@ use serde::Deserialize;
 pub enum Message {
     Next,
     PlayPause,
+    ToggleStar,
 }
 
 #[derive(Default)]
 pub struct KeyState {
     pub next: bool,
     pub play_pause: bool,
+    pub toggle_star: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,7 +67,15 @@ pub fn use_shortcuts(cx: &ScopeState, sender: Coroutine<Message>, key_state: &Us
                             }
                             key_state.write().play_pause = pressed;
                         }
-                        _ => {}
+                        "Enter" => {
+                            if pressed {
+                                sender.send(Message::ToggleStar);
+                            }
+                            key_state.write().toggle_star = pressed;
+                        }
+                        _key => {
+                            // log::debug!("{key}");
+                        }
                     },
                     err => warn!("Unknown message received: {err:?}"),
                 }

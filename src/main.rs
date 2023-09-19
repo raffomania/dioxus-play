@@ -5,15 +5,17 @@ use futures_util::StreamExt;
 use log::{debug, error, LevelFilter};
 use rand::{distributions::Alphanumeric, seq::IteratorRandom, thread_rng, Rng};
 use serde::Deserialize;
-use std::env;
+use std::{collections::HashSet, env};
 
 use crate::{
     audio_control::use_audio_control,
     shortcuts::{use_shortcuts, KeyState},
+    starred_songs::use_starred_songs,
 };
 
 mod audio_control;
 mod shortcuts;
+mod starred_songs;
 
 fn params(credentials: &Credentials) -> Result<String> {
     let Credentials {
@@ -135,7 +137,7 @@ async fn random_test_song() -> Option<Song> {
 }
 
 #[derive(Clone)]
-struct Credentials {
+pub struct Credentials {
     salt: String,
     username: String,
     password: String,
@@ -147,6 +149,7 @@ async fn handle_shortcut_message(
     current_song: &UseState<Option<Result<Song>>>,
     audio_state: &UseRef<AudioState>,
     audio_control: &Coroutine<audio_control::Message>,
+    starred_songs: &Coroutine<starred_songs::Message>,
 ) {
     match msg {
         shortcuts::Message::Next => {
@@ -163,6 +166,16 @@ async fn handle_shortcut_message(
             };
             audio_control.send(msg);
             audio_state.write_silent().playing = !playing;
+        }
+        shortcuts::Message::ToggleStar => {
+            let current_song_id = match &*current_song.current() {
+                Some(Ok(song)) => song.id.clone(),
+                other => {
+                    error!("No current song, can't star it: {other:?}");
+                    return;
+                }
+            };
+            starred_songs.send(starred_songs::Message::ToggleStar(current_song_id))
         }
     }
 }
@@ -205,9 +218,18 @@ fn App(cx: Scope) -> Element {
 
     let key_state = use_ref(cx, || KeyState::default());
     let current_song = use_state(&cx, || None::<Result<Song>>);
+    let starred_song_ids = use_state(cx, || None);
+
+    let starred_songs = use_starred_songs(cx, credentials.read().clone(), starred_song_ids);
 
     let shortcut_listener = use_coroutine(cx, |mut rx: UnboundedReceiver<shortcuts::Message>| {
-        to_owned![audio_state, audio_control, credentials, current_song];
+        to_owned![
+            audio_state,
+            audio_control,
+            credentials,
+            current_song,
+            starred_songs
+        ];
         async move {
             while let Some(msg) = rx.next().await {
                 handle_shortcut_message(
@@ -216,6 +238,7 @@ fn App(cx: Scope) -> Element {
                     &current_song,
                     &audio_state,
                     &audio_control,
+                    &starred_songs,
                 )
                 .await;
             }
@@ -261,6 +284,12 @@ fn App(cx: Scope) -> Element {
             player,
             div { class: "flex mt-8",
                 play_pause_button,
+                ToggleStarButton {
+                    current_song: current_song.get(),
+                    starred_songs: starred_song_ids.get(),
+                    key_state: key_state,
+                    onclick: |_| shortcut_listener.send(shortcuts::Message::ToggleStar)
+                }
                 KeyButton {
                     pressed: key_state.read().next,
                     onclick: |_| shortcut_listener.send(shortcuts::Message::Next),
@@ -300,6 +329,30 @@ fn KeyButton<'a>(
                 "{key_label}"
             }
             children
+        }
+    }
+}
+
+#[inline_props]
+fn ToggleStarButton<'a>(
+    cx: Scope,
+    #[props(!optional)] current_song: &'a Option<Result<Song>>,
+    #[props(!optional)] starred_songs: &'a Option<HashSet<String>>,
+    key_state: &'a UseRef<KeyState>,
+    onclick: EventHandler<'a, ()>,
+) -> Element {
+    let song_id = &current_song.as_ref()?.as_ref().ok()?.id;
+    let starred_songs = starred_songs.as_ref()?;
+    let description = match starred_songs.contains(song_id) {
+        true => "unlike",
+        false => "like",
+    };
+    render! {
+        KeyButton {
+            pressed: key_state.read().toggle_star,
+            onclick: |_| onclick.call(()),
+            key_label: "↵",
+            "{description}"
         }
     }
 }
